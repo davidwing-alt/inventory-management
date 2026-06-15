@@ -120,6 +120,23 @@ class CreatePurchaseOrderRequest(BaseModel):
     expected_delivery_date: str
     notes: Optional[str] = None
 
+class Task(BaseModel):
+    id: str
+    title: str
+    priority: str
+    dueDate: str
+    status: str
+
+class CreateTaskRequest(BaseModel):
+    title: str
+    priority: str
+    dueDate: str
+
+# In-memory task store (resets on restart, like all mock data).
+# String ids avoid collision with the integer-keyed mock tasks in the frontend.
+app_tasks: List[dict] = []
+_task_counter = 0
+
 # API endpoints
 @app.get("/")
 def root():
@@ -303,6 +320,44 @@ def get_monthly_trends():
     result = list(months.values())
     result.sort(key=lambda x: x['month'])
     return result
+
+@app.get("/api/tasks", response_model=List[Task])
+def get_tasks():
+    """Get all user-created tasks"""
+    return app_tasks
+
+@app.post("/api/tasks", response_model=Task, status_code=201)
+def create_task(task: CreateTaskRequest):
+    """Create a new task"""
+    global _task_counter
+    _task_counter += 1
+    new_task = {
+        "id": f"TSK-{_task_counter}",
+        "title": task.title,
+        "priority": task.priority,
+        "dueDate": task.dueDate,
+        "status": "pending"
+    }
+    app_tasks.insert(0, new_task)
+    return new_task
+
+@app.patch("/api/tasks/{task_id}", response_model=Task)
+def toggle_task(task_id: str):
+    """Toggle a task's status between pending and completed"""
+    for task in app_tasks:
+        if task["id"] == task_id:
+            task["status"] = "completed" if task["status"] == "pending" else "pending"
+            return task
+    raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+
+@app.delete("/api/tasks/{task_id}")
+def delete_task(task_id: str):
+    """Delete a task"""
+    for index, task in enumerate(app_tasks):
+        if task["id"] == task_id:
+            app_tasks.pop(index)
+            return {"message": f"Task {task_id} deleted"}
+    raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
 
 if __name__ == "__main__":
     import uvicorn
